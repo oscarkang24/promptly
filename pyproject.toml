@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "promptly"
+version = "0.1.0"
+description = "Rewrite prompts into what you actually mean, using your own context."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "anthropic>=2.14,<3",
+  "pydantic>=2.6",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+promptly = "promptly.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+promptly = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promptly</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --ink: #1c1b19; --muted: #6b6862; --line: #e4e1db;
+    --accent: #3b5bdb; --accent-ink: #ffffff; --soft: #eef1fd; --warn: #b4540a; --ok: #2b7a3d;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --panel: #1f1e1c; --ink: #ecebe8; --muted: #9c9891; --line: #34322f;
+      --accent: #7c95ff; --accent-ink: #10131f; --soft: #262b3d; --warn: #f0a35e; --ok: #74c487;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 18px 24px 6px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+  header .tag { color: var(--muted); }
+  header .engine { margin-left: auto; font-size: 12px; color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 18px; padding: 12px 24px 40px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 16px 32px; } header { padding: 16px 16px 4px; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  textarea, input, select { width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+      border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  textarea { resize: vertical; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+           border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 0; }
+  .row > button { flex: 0 0 auto; }
+  .stack > * + * { margin-top: 10px; }
+  .facts { list-style: none; padding: 0; margin: 0; max-height: 46vh; overflow: auto; }
+  .facts li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--line); }
+  .facts li:first-child { border-top: 0; }
+  .facts .txt { flex: 1; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.sensitive { color: var(--warn); border-color: currentColor; }
+  .x { border: 0; background: none; color: var(--muted); padding: 0 4px; }
+  .output { font-family: var(--mono); font-size: 13.5px; white-space: pre-wrap; background: var(--bg);
+            border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-height: 80px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 600px) { .grid2 { grid-template-columns: 1fr; } }
+  .kv dt { font-size: 12px; color: var(--muted); }
+  .kv dd { margin: 0 0 8px; }
+  .chip { background: var(--soft); border-radius: 8px; padding: 8px 10px; }
+  .chip .why { font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .err { color: var(--warn); }
+  .privacy { font-size: 13px; color: var(--muted); }
+  .privacy b { color: var(--ok); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Promptly</h1><span class="tag">say it loosely, send what you meant</span>
+  <span class="engine" id="engine"></span>
+</header>
+<main>
+  <aside class="stack">
+    <section>
+      <h2>Your context</h2>
+      <ul class="facts" id="facts"></ul>
+      <p class="empty" id="facts-empty">Nothing yet. Add a few facts about yourself, or paste a bio below.</p>
+      <form id="add-fact" class="stack" style="margin-top:12px">
+        <input id="fact-text" placeholder="e.g. Senior data engineer, mostly Python and BigQuery" required>
+        <div class="row">
+          <select id="fact-cat">
+            <option>preference</option><option>work</option><option>project</option><option>skill</option>
+            <option>goal</option><option>constraint</option><option>identity</option><option>other</option>
+          </select>
+          <select id="fact-sens">
+            <option value="public">public</option><option value="personal" selected>personal</option><option value="sensitive">sensitive</option>
+          </select>
+          <button type="submit">Add</button>
+        </div>
+      </form>
+    </section>
+    <section class="stack">
+      <h2>Learn from text</h2>
+      <textarea id="learn-text" rows="4" placeholder="Paste a bio, an about-me, or just ramble about how you like answers."></textarea>
+      <div class="row"><span class="meta" id="learn-msg"></span><button id="learn-btn">Suggest facts</button></div>
+      <div id="learn-out" class="stack"></div>
+    </section>
+  </aside>
+
+  <div class="stack">
+    <section class="stack">
+      <h2>Your prompt</h2>
+      <textarea id="prompt" rows="6" placeholder="Type it the way you'd say it. &quot;make this email less awkward&quot;, &quot;why is my deploy slow&quot;, &quot;plan my week&quot;..."></textarea>
+      <div class="row">
+        <label class="meta" style="flex:0 0 auto">For</label>
+        <select id="target"></select>
+        <label class="meta" style="flex:0 0 auto">Share up to</label>
+        <select id="sens">
+          <option value="public">public facts</option>
+          <option value="personal" selected>personal facts</option>
+          <option value="sensitive">sensitive facts too</option>
+        </select>
+        <button class="primary" id="go">Rewrite</button>
+      </div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section id="result" class="stack hidden">
+      <div class="row"><h2 style="margin:0">Rewritten prompt</h2><span></span><button id="copy">Copy</button></div>
+      <div class="output" id="out" contenteditable="true" spellcheck="false"></div>
+      <div class="privacy" id="privacy"></div>
+
+      <div id="qs" class="stack hidden">
+        <h2>To sharpen it</h2>
+        <div id="q-list" class="stack"></div>
+        <div class="row"><span></span><button id="again">Rewrite with answers</button></div>
+      </div>
+
+      <div class="grid2">
+        <div>
+          <h2>What you meant</h2>
+          <dl class="kv" id="intent"></dl>
+        </div>
+        <div class="stack">
+          <h2>Context used</h2>
+          <div id="injected" class="stack"></div>
+          <details id="assume-box"><summary>Assumptions</summary><ul id="assume"></ul></details>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let answers = {};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || res.statusText);
+  return body;
+}
+
+async function loadStatus() {
+  const s = await api("/api/status");
+  $("engine").textContent = s.engine === "claude" ? "engine: Claude" : "engine: offline heuristics (set ANTHROPIC_API_KEY for Claude)";
+  $("target").innerHTML = s.targets.map((t) => `<option ${t === "generic" ? "selected" : ""}>${t}</option>`).join("");
+}
+
+async function loadFacts() {
+  const facts = await api("/api/facts");
+  $("facts-empty").classList.toggle("hidden", facts.length > 0);
+  $("facts").innerHTML = facts.map((f) => `
+    <li><div class="txt">${esc(f.text)}
+      <div class="meta">${esc(f.category)} <span class="pill ${f.sensitivity}">${f.sensitivity}</span></div></div>
+      <button class="x" title="Forget" data-del="${f.id}">✕</button></li>`).join("");
+}
+
+$("facts").addEventListener("click", async (e) => {
+  const id = e.target.dataset.del;
+  if (id) { await api(`/api/facts/${id}`, { method: "DELETE" }); loadFacts(); }
+});
+
+$("add-fact").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  await api("/api/facts", { method: "POST", body: JSON.stringify({
+    text: $("fact-text").value, category: $("fact-cat").value, sensitivity: $("fact-sens").value }) });
+  $("fact-text").value = "";
+  loadFacts();
+});
+
+$("learn-btn").addEventListener("click", async () => {
+  const text = $("learn-text").value.trim();
+  if (!text) return;
+  $("learn-btn").disabled = true; $("learn-msg").textContent = "Reading…";
+  try {
+    const drafts = await api("/api/learn", { method: "POST", body: JSON.stringify({ text }) });
+    $("learn-msg").textContent = drafts.length ? "Pick what to remember:" : "Nothing new to remember.";
+    $("learn-out").innerHTML = drafts.map((d, i) => `
+      <label class="row" style="align-items:flex-start"><input type="checkbox" checked data-i="${i}" style="flex:0 0 auto;width:auto;margin-top:4px">
+      <span>${esc(d.text)}<br><span class="meta">${esc(d.category)} <span class="pill ${d.sensitivity}">${d.sensitivity}</span></span></span></label>`).join("")
+      + (drafts.length ? `<div class="row"><span></span><button id="accept">Save selected</button></div>` : "");
+    if (drafts.length) $("accept").onclick = async () => {
+      const keep = [...$("learn-out").querySelectorAll("input:checked")].map((c) => drafts[c.dataset.i]);
+      await api("/api/learn/accept", { method: "POST", body: JSON.stringify({ facts: keep }) });
+      $("learn-out").innerHTML = ""; $("learn-text").value = ""; $("learn-msg").textContent = `Saved ${keep.length}.`;
+      loadFacts();
+    };
+  } catch (err) { $("learn-msg").textContent = err.message; }
+  $("learn-btn").disabled = false;
+});
+
+async function rewrite() {
+  const prompt = $("prompt").value;
+  if (!prompt.trim()) return;
+  $("go").disabled = true; $("again").disabled = true; $("err").textContent = ""; $("go").textContent = "Rewriting…";
+  try {
+    const r = await api("/api/rewrite", { method: "POST", body: JSON.stringify({
+      prompt, target: $("target").value, max_sensitivity: $("sens").value, answers }) });
+    render(r);
+  } catch (err) { $("err").textContent = err.message; }
+  $("go").disabled = false; $("again").disabled = false; $("go").textContent = "Rewrite";
+}
+
+function render(r) {
+  $("result").classList.remove("hidden");
+  $("out").textContent = r.rewritten_prompt;
+  const i = r.intent;
+  $("intent").innerHTML = [["Real goal", i.true_goal], ["Task", i.task_type], ["For", i.audience],
+    ["Ideal output", i.desired_output], ["Constraints", i.constraints.join("; ") || "none stated"],
+    ["Good means", i.success_criteria.join("; ")], ["Confidence", r.confidence]]
+    .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+  $("injected").innerHTML = r.injected.length
+    ? r.injected.map((f) => `<div class="chip">${esc(f.text)}<div class="why">${esc(f.reason)}</div></div>`).join("")
+    : `<p class="empty">No personal facts were needed for this one.</p>`;
+  $("privacy").innerHTML = `Sent <b>${r.shared_fact_ids.length}</b> candidate fact(s) to the ${esc(r.engine)} engine` +
+    (r.withheld_fact_ids.length ? `; kept <b>${r.withheld_fact_ids.length}</b> above your sharing limit on this device.` : ".");
+  $("assume").innerHTML = r.assumptions.map((a) => `<li>${esc(a)}</li>`).join("");
+  $("assume-box").classList.toggle("hidden", !r.assumptions.length);
+  $("qs").classList.toggle("hidden", !r.clarifying_questions.length);
+  $("q-list").innerHTML = r.clarifying_questions.map((q, n) => `
+    <label class="stack"><span>${esc(q)}</span><input data-q="${esc(q)}" value="${esc(answers[q] || "")}"></label>`).join("");
+}
+
+$("go").addEventListener("click", () => { answers = {}; rewrite(); });
+$("again").addEventListener("click", () => {
+  $("q-list").querySelectorAll("input").forEach((inp) => { if (inp.value.trim()) answers[inp.dataset.q] = inp.value.trim(); });
+  rewrite();
+});
+$("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("go").click(); });
+$("copy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText($("out").innerText);
+  $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy"), 1200);
+});
+
+loadStatus(); loadFacts();
+</script>
+</body>
+</html>
