@@ -60,6 +60,14 @@
   .privacy b { color: var(--ok); }
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .hidden { display: none; }
+  .chip-head { display: flex; gap: 8px; align-items: flex-start; }
+  .chip-head .t { flex: 1; }
+  .score { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .vote { border: 0; background: none; padding: 0 2px; opacity: .55; font-size: 14px; }
+  .vote:hover, .vote.on { opacity: 1; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.clear { color: var(--ok); border-color: currentColor; }
+  .badge.gaps { color: var(--warn); border-color: currentColor; }
 </style>
 </head>
 <body>
@@ -114,7 +122,7 @@
     </section>
 
     <section id="result" class="stack hidden">
-      <div class="row"><h2 style="margin:0">Rewritten prompt</h2><span></span><button id="copy">Copy</button></div>
+      <div class="row"><h2 style="margin:0;flex:0 0 auto">Rewritten prompt</h2><span><span class="badge" id="clarity"></span></span><button id="copy">Copy</button></div>
       <div class="output" id="out" contenteditable="true" spellcheck="false"></div>
       <div class="privacy" id="privacy"></div>
 
@@ -143,6 +151,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 let answers = {};
+let last = null; // last result, for feedback
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
@@ -153,7 +162,8 @@ async function api(path, opts = {}) {
 
 async function loadStatus() {
   const s = await api("/api/status");
-  $("engine").textContent = s.engine === "claude" ? "engine: Claude" : "engine: offline heuristics (set ANTHROPIC_API_KEY for Claude)";
+  $("engine").textContent = (s.engine === "claude" ? "engine: Claude" : "engine: offline heuristics (set ANTHROPIC_API_KEY for Claude)")
+    + " · vectors: " + s.embedder;
   $("target").innerHTML = s.targets.map((t) => `<option ${t === "generic" ? "selected" : ""}>${t}</option>`).join("");
 }
 
@@ -213,7 +223,11 @@ async function rewrite() {
 }
 
 function render(r) {
+  last = r;
   $("result").classList.remove("hidden");
+  const gapName = { what: "what you want", where: "what it's about", done: "what good looks like" };
+  $("clarity").className = "badge " + (r.already_clear ? "clear" : "gaps");
+  $("clarity").textContent = r.already_clear ? "already clear: light touch" : "was missing: " + r.gaps.map((g) => gapName[g]).join(", ");
   $("out").textContent = r.rewritten_prompt;
   const i = r.intent;
   $("intent").innerHTML = [["Real goal", i.true_goal], ["Task", i.task_type], ["For", i.audience],
@@ -221,7 +235,11 @@ function render(r) {
     ["Good means", i.success_criteria.join("; ")], ["Confidence", r.confidence]]
     .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
   $("injected").innerHTML = r.injected.length
-    ? r.injected.map((f) => `<div class="chip">${esc(f.text)}<div class="why">${esc(f.reason)}</div></div>`).join("")
+    ? r.injected.map((f) => `<div class="chip"><div class="chip-head"><span class="t">${esc(f.text)}</span>
+        <span class="score" title="latent similarity + keywords + past feedback">${f.relevance.toFixed(2)}</span>
+        <button class="vote" data-fid="${f.id}" data-label="1" title="Helpful here">👍</button>
+        <button class="vote" data-fid="${f.id}" data-label="-1" title="Not relevant here">👎</button></div>
+        <div class="why">${esc(f.reason)}</div></div>`).join("")
     : `<p class="empty">No personal facts were needed for this one.</p>`;
   $("privacy").innerHTML = `Sent <b>${r.shared_fact_ids.length}</b> candidate fact(s) to the ${esc(r.engine)} engine` +
     (r.withheld_fact_ids.length ? `; kept <b>${r.withheld_fact_ids.length}</b> above your sharing limit on this device.` : ".");
@@ -232,6 +250,16 @@ function render(r) {
     <label class="stack"><span>${esc(q)}</span><input data-q="${esc(q)}" value="${esc(answers[q] || "")}"></label>`).join("");
 }
 
+async function sendFeedback(factId, label) {
+  if (!last) return;
+  await api("/api/feedback", { method: "POST", body: JSON.stringify({ prompt: last.original_prompt, fact_id: factId, label }) });
+}
+$("injected").addEventListener("click", async (e) => {
+  const b = e.target.closest(".vote");
+  if (!b) return;
+  await sendFeedback(b.dataset.fid, Number(b.dataset.label));
+  b.parentElement.querySelectorAll(".vote").forEach((v) => v.classList.toggle("on", v === b));
+});
 $("go").addEventListener("click", () => { answers = {}; rewrite(); });
 $("again").addEventListener("click", () => {
   $("q-list").querySelectorAll("input").forEach((inp) => { if (inp.value.trim()) answers[inp.dataset.q] = inp.value.trim(); });
@@ -240,6 +268,8 @@ $("again").addEventListener("click", () => {
 $("prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("go").click(); });
 $("copy").addEventListener("click", async () => {
   await navigator.clipboard.writeText($("out").innerText);
+  // Copying is a weak "these facts were right" signal.
+  if (last) last.injected.forEach((f) => sendFeedback(f.id, 0.3).catch(() => {}));
   $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy"), 1200);
 });
 

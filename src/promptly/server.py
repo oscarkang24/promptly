@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from .core import Promptly
 from .engines import TARGET_STYLES, EngineError
-from .models import Category, Fact, FactDraft, RewriteRequest, RewriteResult, Sensitivity
+from .models import Category, Fact, FactDraft, FeedbackIn, RewriteRequest, RewriteResult, Sensitivity
 
 STATIC = Path(__file__).parent / "static"
 
@@ -53,7 +53,7 @@ def index():
 @app.get("/api/status")
 def status():
     p = get_promptly()
-    return {"engine": p.engine.name, "targets": sorted(TARGET_STYLES), "facts": len(p.store.all())}
+    return {"engine": p.engine.name, "embedder": p.retriever.embedder.name, "targets": sorted(TARGET_STYLES), "facts": len(p.store.all())}
 
 
 @app.post("/api/rewrite", response_model=RewriteResult)
@@ -64,6 +64,15 @@ def rewrite(req: RewriteRequest):
         raise HTTPException(400, str(e))
     except EngineError as e:
         raise HTTPException(502, str(e))
+
+
+@app.post("/api/feedback")
+def feedback(body: FeedbackIn):
+    try:
+        get_promptly().feedback(body.prompt, body.fact_id, body.label)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
 
 
 @app.get("/api/facts", response_model=list[Fact])

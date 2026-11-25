@@ -64,9 +64,20 @@ class UsedFact(BaseModel):
     reason: str = Field(description="Why this fact changes the answer for this prompt.")
 
 
+Gap = Literal["what", "where", "done"]
+
+
 class RewriteDraft(BaseModel):
     """What an engine returns. Validated and post-processed into RewriteResult."""
 
+    already_clear: bool = Field(
+        description="True when the request already says what is wanted, about what, and what a good result "
+        "looks like, so the rewrite only adds context and changes the wording as little as possible."
+    )
+    gaps: list[Gap] = Field(
+        description="Which of what / where (which thing, scope, setting) / done (what good looks like) "
+        "the original request left unclear."
+    )
     intent: Intent
     rewritten_prompt: str
     used_facts: list[UsedFact]
@@ -80,17 +91,21 @@ class InjectedFact(BaseModel):
     text: str
     category: str
     reason: str
+    relevance: float = 0.0  # retriever score (latent similarity + keywords + feedback)
 
 
 class RewriteResult(BaseModel):
     original_prompt: str
     rewritten_prompt: str
+    already_clear: bool
+    gaps: list[Gap]
     intent: Intent
     injected: list[InjectedFact]
     assumptions: list[str]
     clarifying_questions: list[str]
     confidence: Literal["low", "medium", "high"]
     engine: str
+    embedder: str
     # Privacy transparency: exactly which facts left the machine, and which were held back.
     shared_fact_ids: list[str]
     withheld_fact_ids: list[str]
@@ -102,3 +117,9 @@ class RewriteRequest(BaseModel):
     max_sensitivity: Sensitivity = "personal"
     answers: dict[str, str] = Field(default_factory=dict)
     fact_ids: list[str] | None = None  # pin an explicit set of facts; None = auto-select
+
+
+class FeedbackIn(BaseModel):
+    prompt: str
+    fact_id: str
+    label: float = Field(ge=-1, le=1, description="+1 helpful, -1 noise; implicit signals use smaller values")

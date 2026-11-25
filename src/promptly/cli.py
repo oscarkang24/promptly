@@ -25,11 +25,12 @@ def _print_result(res, as_json: bool) -> None:
     print(res.rewritten_prompt)
     print("\n---")
     print(f"goal:       {res.intent.true_goal}")
-    print(f"engine:     {res.engine}   confidence: {res.confidence}")
+    print(f"engine:     {res.engine}   embedder: {res.embedder}   confidence: {res.confidence}")
+    print(f"clarity:    {'already clear' if res.already_clear else 'missing ' + ', '.join(res.gaps)}")
     if res.injected:
         print("injected:")
         for f in res.injected:
-            print(f"  [{f.id}] {f.text}  ({f.reason})")
+            print(f"  [{f.id}] {f.relevance:+.2f}  {f.text}  ({f.reason})")
     if res.withheld_fact_ids:
         print(f"withheld:   {len(res.withheld_fact_ids)} fact(s) above the sensitivity limit")
     for a in res.assumptions:
@@ -63,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     ln = sub.add_parser("learn", help="Propose facts from text about yourself")
     ln.add_argument("text", nargs="?")
     ln.add_argument("-y", "--yes", action="store_true", help="Save all proposals without asking")
+
+    fb = sub.add_parser("feedback", help="Tell Promptly a fact helped (+1) or was noise (-1) for a prompt")
+    fb.add_argument("fact_id")
+    fb.add_argument("label", type=float)
+    fb.add_argument("prompt")
 
     sv = sub.add_parser("serve", help="Run the web app")
     sv.add_argument("--host", default="127.0.0.1")
@@ -110,6 +116,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.fact_cmd == "rm":
                 print("deleted" if app.store.delete(args.id) else "no such fact")
                 return 0
+
+        elif args.cmd == "feedback":
+            app.feedback(args.prompt, args.fact_id, max(-1.0, min(1.0, args.label)))
+            print("noted")
 
         elif args.cmd == "learn":
             text = args.text if args.text is not None else sys.stdin.read()

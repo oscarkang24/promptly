@@ -16,13 +16,41 @@ you get:    Context about me:
 ## How it works
 
 ```
-prompt ──► privacy gate ──► relevance shortlist ──► Claude (one structured call) ──► validation ──► result
-              │                    │                         │                          │
-   facts above your limit   cheap lexical scorer      infers intent, picks the     drops any fact id it
-   never leave the device   keeps the top 25          facts that change the        wasn't sent; caps
-                                                      answer, rewrites, asks       questions at 3
-                                                      up to 3 questions
+prompt ──► privacy gate ──► latent-vector retrieval ──► Claude (one structured call) ──► validation ──► result
+              │                     │                            │                            │
+   facts above your limit   prompt + facts embedded      triage (what/where/done),     drops any fact id it
+   never leave the device   locally; hybrid score:       infers intent, picks facts,   wasn't sent; caps
+                            cosine + keywords +          rewrites, asks ≤3 questions   questions at 3
+                            feedback from similar        in one round
+                            past prompts; top 25
+                                    ▲
+                     👍/👎 and Copy ─┘ (feedback memory in the same vector space)
 ```
+
+### Latent vectors
+
+Every fact and every prompt is embedded **on your machine** (nothing is sent to an embedding API):
+
+- `fastembed` + `paraphrase-multilingual-MiniLM-L12-v2` (384-d, ~50 languages including Chinese)
+  when installed with `pip install -e ".[embed]"`. The model (~220 MB) downloads once on first use.
+- Otherwise a dependency-free hashing embedder (word + character n-gram feature hashing, 1024-d).
+  It handles Chinese through character bigrams, so it runs offline and in tests.
+
+A fact's score is `cos(prompt, fact) + 0.15·keyword overlap + category prior + 0.5·feedback`.
+The feedback term comes from a nearest-neighbour vote: each 👍/👎 you give stores the prompt and
+the fact. Later prompts that land near that prompt in vector space (cosine > 0.35) inherit the vote,
+weighted by similarity. Copying a rewrite counts as a weak 👍 (+0.3) for the facts it used. Ranking
+adapts to you without any training step, and feedback on unrelated prompts has no effect.
+Vectors are cached in `~/.promptly/vectors.json`, scoped to the embedder that produced them.
+Feedback is stored in `~/.promptly/feedback.jsonl`.
+
+### Triage first (borrowed from noodle's `refine` skill)
+
+Promptly first checks whether the request already says **what** is wanted, **where** it applies,
+and what **done** looks like. Missing parts are returned as `gaps` and are the only things it asks
+about, in a single round. Requests that are already clear get a light touch: context is added and
+the wording barely changes. Every rewrite must stand on its own for an assistant with no other
+context.
 
 - **Intent inference.** Each result separates the surface request from the real goal, and names
   the audience, the ideal output, the constraints and the success criteria.
@@ -59,10 +87,12 @@ promptly fact add "Prefers concise answers with code first" --category preferenc
 promptly learn "I'm a backend engineer, mostly Go, and I hate fluff."
 promptly rewrite "fix my email to the landlord" -i          # -i answers clarifying questions
 promptly rewrite "plan meals this week" --allow-sensitive --target claude
+promptly feedback <fact-id> -1 "plan meals this week"       # this fact was noise here
 ```
 
 Settings: `PROMPTLY_MODEL` (default `claude-opus-5-5`), `PROMPTLY_HOME` (default `~/.promptly`),
-`PROMPTLY_ENGINE=offline|claude`.
+`PROMPTLY_ENGINE=offline|claude`, `PROMPTLY_EMBEDDER=auto|fastembed|hashing`,
+`PROMPTLY_EMBED_MODEL` (any fastembed text model).
 
 The Claude engine uses structured outputs and server-side refusal fallbacks
 (`fallbacks: "default"`), so if Claude declines a request the API retries it on a fallback model.
@@ -72,6 +102,7 @@ The Claude engine uses structured outputs and server-side refusal fallbacks
 | Method | Path | |
 |---|---|---|
 | POST | `/api/rewrite` | `{prompt, target?, max_sensitivity?, answers?, fact_ids?}` |
+| POST | `/api/feedback` | `{prompt, fact_id, label}`: label in [-1, 1] |
 | GET/POST | `/api/facts` | list / add |
 | PATCH/DELETE | `/api/facts/{id}` | edit / forget |
 | POST | `/api/learn` | propose facts from text |
@@ -83,7 +114,8 @@ The Claude engine uses structured outputs and server-side refusal fallbacks
 src/promptly/
   models.py    data models (Fact, Intent, RewriteResult, ...)
   store.py     local JSON fact store
-  context.py   privacy gate + relevance shortlist
+  embeddings.py  local embedders (fastembed / hashing) + on-disk vector cache
+  context.py   privacy gate + hybrid latent-vector retrieval + feedback memory
   engines.py   ClaudeEngine (structured output) and OfflineEngine
   core.py      the pipeline + validation
   cli.py       `promptly` command
@@ -95,5 +127,7 @@ tests/         pytest suite (no network)
 
 - Browser extension that rewrites in place inside ChatGPT / Claude / Gemini text boxes.
 - Learn facts passively from accepted rewrites and from edits people make to them.
-- Embedding-based retrieval once profiles grow past a few hundred facts.
+- A user-level latent vector (for example a running average of accepted rewrites) to steer tone and
+  format when no individual fact matches.
+- Mine past assistant conversations for facts, like noodle's `ruminate` / `reflect` skills.
 - An eval set of loose prompts → ideal rewrites to tune the system prompt against.
