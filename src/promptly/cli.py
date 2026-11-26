@@ -5,6 +5,10 @@
     promptly fact list
     promptly learn "I'm a backend engineer, I mostly write Go and I hate fluff."
     promptly serve
+    promptly mcp                                  # MCP server for agents (stdio)
+    promptly browser context "plan the API migration"
+    promptly browser search "rate limiting"
+    promptly browser forget --domain example.com
 """
 
 from __future__ import annotations
@@ -74,7 +78,41 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8787)
 
+    sub.add_parser("mcp", help="Run the MCP server for agents (stdio)")
+
+    br = sub.add_parser("browser", help="Inspect and manage the local browsing memory")
+    bsub = br.add_subparsers(dest="browser_cmd", required=True)
+    bc = bsub.add_parser("context", help="Context pack for a task")
+    bc.add_argument("task")
+    bc.add_argument("--max-tokens", type=int, default=1500)
+    bc.add_argument("--json", action="store_true")
+    bs = bsub.add_parser("search")
+    bs.add_argument("query")
+    bs.add_argument("-k", type=int, default=8)
+    bsub.add_parser("recent").add_argument("--limit", type=int, default=20)
+    bsub.add_parser("interests")
+    bsub.add_parser("stats")
+    bsub.add_parser("suggest", help="Propose profile facts from browsing; asks before saving")
+    bsub.add_parser("pause")
+    bsub.add_parser("resume")
+    bsub.add_parser("token", help="Print the local auth token the browser shell and agents use")
+    bf = bsub.add_parser("forget")
+    g = bf.add_mutually_exclusive_group(required=True)
+    g.add_argument("--url")
+    g.add_argument("--domain")
+    g.add_argument("--last-minutes", type=float)
+    g.add_argument("--everything", action="store_true")
+
     args = p.parse_args(argv)
+
+    if args.cmd == "mcp":
+        from .browser.mcp_server import main as mcp_main
+
+        mcp_main()
+        return 0
+
+    if args.cmd == "browser":
+        return _browser(args)
 
     if args.cmd == "serve":
         import uvicorn
@@ -140,6 +178,50 @@ def main(argv: list[str] | None = None) -> int:
     except (EngineError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _browser(args) -> int:
+    import time
+
+    from .browser.pack import pack_to_markdown
+    from .browser.service import get_service
+
+    svc = get_service()
+    m = svc.memory
+    dump = lambda o: print(json.dumps(o, indent=2, ensure_ascii=False))  # noqa: E731
+    c = args.browser_cmd
+    if c == "context":
+        pack = svc.context(args.task, max_tokens=args.max_tokens)
+        dump(pack) if args.json else print(pack_to_markdown(pack))
+    elif c == "search":
+        for h in m.search(args.query, k=args.k):
+            print(f"{h.score:5.2f}  {h.title or h.url}\n       {h.url}\n       {h.snippet[:160]}")
+    elif c == "recent":
+        for r in m.recent(args.limit):
+            print(f"{r['at']}  {r['dwell_s']:>5}s  {r['title'] or r['url']}")
+    elif c == "interests":
+        dump(m.interests())
+    elif c == "stats":
+        dump(m.stats())
+    elif c == "suggest":
+        drafts = m.suggest_facts(f.text for f in svc.store.all())
+        if not drafts:
+            print("Nothing to suggest yet. Browse a bit more.")
+        for d in drafts:
+            if input(f"Remember \"{d.text}\"? [y/N] ").strip().lower() in ("y", "yes"):
+                f = svc.store.add(Fact(**d.model_dump(), source="browsing"))
+                print(f"saved [{f.id}]")
+    elif c in ("pause", "resume"):
+        m.policy.paused = c == "pause"
+        m.policy.save()
+        print("recording paused" if m.policy.paused else "recording on")
+    elif c == "token":
+        print(svc.token)
+    elif c == "forget":
+        since = time.time() - args.last_minutes * 60 if args.last_minutes else None
+        n = m.forget(url=args.url, domain=args.domain, since=since, everything=args.everything)
+        print(f"forgot {n} page(s)")
     return 0
 
 

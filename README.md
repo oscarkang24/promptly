@@ -66,6 +66,108 @@ context.
   until you accept it.
 - **Targets.** `generic`, `claude` (XML tags), `chatgpt` (Markdown), `image`, `code-agent`.
 
+## Promptly Browser
+
+A browser that learns how you work, keeps what it learns on your machine, and hands it to your
+agents as compact, task-shaped context.
+
+```
+ Promptly Browser (Electron, browser/)             promptly serve (127.0.0.1:8787)          agents
+ ┌───────────────────────────────┐  visits, dwell,  ┌───────────────────────────────┐  MCP   ┌──────────────┐
+ │ tabs · address bar · ✦ panel  │  scroll, text,   │ BrowserMemory  ~/.promptly/   │◄──────►│ Claude Code, │
+ │ preload: scroll, copy, idle   │──searches, ─────►│  browser.db (SQLite, 0600)    │ stdio  │ Desktop, any │
+ │ Ctrl+Shift+H: remember text   │  highlights      │  passages + local embeddings  │        │ MCP client   │
+ │ control server 127.0.0.1:rand │◄─────────────────┤  sessions · interests · packs │        └──────┬───────┘
+ └───────────────▲───────────────┘   tab control    └───────────────────────────────┘               │
+                 └──────────────────── open / read / click / type (agent tabs only) ────────────────┘
+```
+
+### What it learns
+
+| Signal | How |
+|---|---|
+| Visits | every page a tab shows, the page it came from, and a session id (a 30-minute gap starts a new session) |
+| Attention | dwell time counted only while the tab is in front, the window is focused and you're not idle; max scroll depth |
+| Content | the page's readable text (article/main, minus nav, forms and scripts), split into passages and embedded locally |
+| Searches | queries on Google, Bing, DuckDuckGo, Brave, Kagi, GitHub, Stack Overflow, YouTube and Wikipedia |
+| Explicit | text you copy, and highlights you save with Ctrl/Cmd+Shift+H or the right-click menu |
+
+From that it derives **interests** (topics and sites, weighted by attention with a 14-day half-life),
+your **current session** (what you're doing right now), and **suggested profile facts** that are
+saved only when you accept them.
+
+### What it never does
+
+- Records nothing in private windows (Ctrl/Cmd+Shift+N), while paused, or on blocked sites. Banks,
+  password managers, health portals and login pages are blocked by default.
+- Never reads form fields or keystrokes. Strips secret-looking URL parameters (`token`, `code`,
+  `session`, `key`, `sig`, ...).
+- Sends nothing off the machine. Embeddings are computed locally, and pages and visits are deleted after 90 days (you can change this).
+- Lets you forget a page, a site, the last hour, or everything, from the panel, the CLI or the API.
+
+### For agents
+
+Agent visits are stored with `actor='agent'`. They never count toward what the browser learns
+about you, but agents can still search them.
+
+- **MCP** (`promptly mcp`): `get_context`, `search_history`, `recent_activity`, `current_session`,
+  `interests`, `remember`, plus tab tools `list_tabs`, `open_tab`, `read_tab`, `navigate`, `click`,
+  `type_text`, `close_tab`. The memory tools work even when the browser is closed.
+- **Guardrails**: agents can read any tab. They can click, type and navigate only in tabs they opened,
+  or in a tab where you pressed **🤖 Let agent drive**. Agent tabs carry an orange `agent` badge.
+  `type_text` refuses password, payment and one-time-code fields.
+- **CDP**: start with `PROMPTLY_CDP_PORT=9333` and Playwright can `connectOverCDP("http://127.0.0.1:9333")`.
+- **Local auth**: the daemon and the shell's control port both require `X-Promptly-Token` from
+  `~/.promptly/browser.token` (0600). The shell refuses any request that carries an `Origin` header,
+  so websites can't reach it through localhost.
+
+Context packs fill sections in priority order within a token budget (profile facts → related pages
+with their best passage and why they matched → current session → matching highlights → interests),
+so a small budget keeps the most relevant items instead of cutting text off midway. The ✦ panel's
+**Copy for any AI chat** button puts the same pack on your clipboard.
+
+`POST /api/rewrite` with `"use_browsing": true` also offers matching pages to the rewriter as
+temporary facts for that one rewrite. They pass through the same privacy gate and are never saved.
+
+### Run it
+
+```bash
+pip install -e ".[dev]"            # daemon + MCP
+```
+
+```bash
+cd browser && npm install && npm start   # starts `promptly serve` itself if it isn't running
+```
+
+Add it to Claude Code as an MCP server:
+
+```bash
+claude mcp add promptly-browser -- promptly mcp
+```
+
+CLI:
+
+```bash
+promptly browser context "write the migration plan for our API"
+promptly browser search "that post about vector indexes"
+promptly browser interests
+promptly browser suggest           # propose profile facts from browsing, asks before saving
+promptly browser forget --domain example.com     # or --url, --last-minutes 60, --everything
+promptly browser pause             # / resume
+```
+
+Browser settings: `PROMPTLY_DAEMON` (default `http://127.0.0.1:8787`), `PROMPTLY_CMD` (how to start
+the daemon, default `promptly`), `PROMPTLY_CDP_PORT`, `PROMPTLY_CONTROL_PORT` (default random),
+`PROMPTLY_START_URL`.
+
+| Method | Path (all need `X-Promptly-Token`) | |
+|---|---|---|
+| POST | `/api/browser/visit/start` · `/visit/end` · `/content` · `/event` | written by the shell |
+| GET | `/api/browser/search?q=` · `/recent` · `/session` · `/interests` · `/stats` · `/suggest-facts` | |
+| POST | `/api/browser/context` | `{task, max_tokens?, max_sensitivity?, format: json\|markdown}` |
+| GET/POST | `/api/browser/policy` | `{paused, blocked, retention_days}` |
+| POST | `/api/browser/forget` | `{url}` \| `{domain}` \| `{since_minutes}` \| `{everything: true}` |
+
 ## Run it
 
 ```bash
@@ -120,12 +222,21 @@ src/promptly/
   core.py      the pipeline + validation
   cli.py       `promptly` command
   server.py    FastAPI app; static/index.html is the UI
-tests/         pytest suite (no network)
+  browser/
+    policy.py      what may be recorded (private, paused, blocklist, secret URL params)
+    memory.py      SQLite behavior memory: pages, passages+vectors, visits, events, interests
+    pack.py        token-budgeted context packs for a task
+    routes.py      /api/browser (token-protected)
+    service.py     wiring, local auth token, client for the shell's control port
+    mcp_server.py  MCP tools for agents
+browser/         Electron shell: src/main.js (tabs, capture, agent control), ui/ (toolbar, panel)
+tests/         pytest suite (no network); browser/test/ for the shell's helpers
 ```
 
 ## Next ideas
 
-- Browser extension that rewrites in place inside ChatGPT / Claude / Gemini text boxes.
+- Rewrite in place inside ChatGPT / Claude / Gemini text boxes, now that the browser is ours.
+- Group sessions into named tasks by meaning, not only by time gaps.
 - Learn facts passively from accepted rewrites and from edits people make to them.
 - A user-level latent vector (for example a running average of accepted rewrites) to steer tone and
   format when no individual fact matches.

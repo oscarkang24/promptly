@@ -117,6 +117,7 @@ class RewriteRequest(BaseModel):
     max_sensitivity: Sensitivity = "personal"
     answers: dict[str, str] = Field(default_factory=dict)
     fact_ids: list[str] | None = None  # pin an explicit set of facts; None = auto-select
+    use_browsing: bool = False  # also offer matching pages from the local browser memory as context
 
 
 class FeedbackIn(BaseModel):

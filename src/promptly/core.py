@@ -12,6 +12,16 @@ from .store import FactStore
 COPY_SIGNAL = 0.3
 
 
+def browsing_facts(memory, prompt: str, k: int = 4) -> list[Fact]:
+    out = []
+    for h in memory.search(prompt, k=k):
+        if h.score < 0.3:
+            continue
+        out.append(Fact(id=f"web{h.page_id}", text=f"Recently read \"{h.title or h.url}\" ({h.url}): {h.snippet[:220]}",
+                        category="project", tags=["browsing", h.domain], sensitivity="personal", source="browsing"))
+    return out
+
+
 class Promptly:
     def __init__(
         self,
@@ -19,11 +29,14 @@ class Promptly:
         engine: Engine | None = None,
         retriever: Retriever | None = None,
         shortlist_size: int = 25,
+        browsing=None,
     ):
         self.store = store or FactStore()
         self.engine = engine or default_engine()
         self.retriever = retriever or Retriever(default_embedder(), self.store.path.parent)
         self.shortlist_size = shortlist_size
+        # Optional BrowserMemory. Matching pages become temporary, never-saved facts for one rewrite.
+        self.browsing = browsing
 
     def rewrite(self, req: RewriteRequest) -> RewriteResult:
         if not req.prompt.strip():
@@ -33,6 +46,8 @@ class Promptly:
         if req.fact_ids is not None:
             pinned = set(req.fact_ids)
             facts = [f for f in facts if f.id in pinned]
+        if req.use_browsing and self.browsing is not None:
+            facts = facts + browsing_facts(self.browsing, req.prompt)
         ranked, withheld = self.retriever.select(req.prompt, facts, req.max_sensitivity, self.shortlist_size)
         candidates = [r.fact for r in ranked]
         relevance = {r.fact.id: round(r.score, 3) for r in ranked}

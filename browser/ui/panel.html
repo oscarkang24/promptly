@@ -1,0 +1,75 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="base.css">
+<style>
+  body { background:var(--bg); overflow-y:auto; border-left:1px solid var(--line); }
+  main { padding:14px; display:flex; flex-direction:column; gap:18px; }
+  h2 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .row input { flex:1; min-width:0; }
+  .pill { border:1px solid var(--line); background:var(--input); }
+  .pill:hover { border-color:var(--accent); }
+  .stat { color:var(--muted); }
+  .rec { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; margin-right:6px; }
+  .rec.off { background:var(--muted); }
+  ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  li { padding:8px 10px; background:var(--input); border:1px solid var(--line); border-radius:8px; }
+  li a { color:var(--accent); text-decoration:none; cursor:pointer; font-weight:500; }
+  li .s { color:var(--muted); font-size:12px; margin-top:3px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  li .why { font-size:11px; color:var(--muted); margin-top:3px; }
+  pre { white-space:pre-wrap; word-break:break-word; background:var(--input); border:1px solid var(--line); border-radius:8px; padding:10px;
+    font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; max-height:340px; overflow:auto; margin:8px 0 0; }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; }
+  .chip { font-size:12px; padding:2px 8px; border-radius:999px; background:var(--tab); }
+  .empty { color:var(--muted); font-size:12px; }
+  .danger { color:#dc2626; }
+</style></head>
+<body><main>
+  <section>
+    <div class="row" style="justify-content:space-between">
+      <div><span id="rec" class="rec"></span><span id="status">…</span></div>
+      <button id="pause" class="pill">Pause</button>
+    </div>
+    <div class="stat" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Context for a task</h2>
+    <div class="row"><input id="task" placeholder="e.g. write the migration plan for our API"><button id="go" class="pill">Build</button></div>
+    <div id="ctxwrap" hidden>
+      <pre id="ctx"></pre>
+      <div class="row" style="margin-top:6px"><button id="copy" class="pill">Copy for any AI chat</button></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Search what you've read</h2>
+    <div class="row"><input id="q" placeholder="that article about vector indexes…"></div>
+    <ul id="hits" style="margin-top:8px"></ul>
+  </section>
+
+  <section>
+    <h2>What it has noticed</h2>
+    <div class="chips" id="topics"></div>
+    <div class="chips" id="domains" style="margin-top:6px"></div>
+    <ul id="suggest" style="margin-top:8px"></ul>
+  </section>
+
+  <section>
+    <h2>Recent</h2>
+    <ul id="recent"></ul>
+  </section>
+
+  <section>
+    <h2>Forget</h2>
+    <div class="row">
+      <button id="fsite" class="pill">Forget this site</button>
+      <button id="block" class="pill">Never record this site</button>
+      <button id="fhour" class="pill danger">Forget last hour</button>
+    </div>
+    <div class="stat" id="fmsg" style="margin-top:6px"></div>
+  </section>
+</main>
+<script src="panel.js"></script>
+</body></html>

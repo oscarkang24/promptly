@@ -1,0 +1,14 @@
+{
+  "name": "promptly-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser that learns how you work, keeps it on your machine, and shares it with your agents.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "electron": "45.5.0"
+  }
+}

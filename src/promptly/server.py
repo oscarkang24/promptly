@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from .browser.routes import router as browser_router
 from .core import Promptly
 from .engines import TARGET_STYLES, EngineError
 from .models import Category, Fact, FactDraft, FeedbackIn, RewriteRequest, RewriteResult, Sensitivity
@@ -16,11 +17,18 @@ from .models import Category, Fact, FactDraft, FeedbackIn, RewriteRequest, Rewri
 STATIC = Path(__file__).parent / "static"
 
 app = FastAPI(title="Promptly", version="0.1.0")
+app.include_router(browser_router)
 
 
 @lru_cache
 def get_promptly() -> Promptly:
-    return Promptly()
+    from .browser.service import BrowserService
+
+    p = Promptly()
+    # One profile store and one vector cache, shared by the rewriter and the browser memory.
+    p.browser_service = BrowserService(home=p.store.path.parent, store=p.store, retriever=p.retriever)
+    p.browsing = p.browser_service.memory
+    return p
 
 
 class FactIn(BaseModel):
