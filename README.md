@@ -13,6 +13,10 @@ you get:    Context about me:
             What I need back: working code first, then how to verify it.
 ```
 
+**Demo:** [`demo/promptly-demo.mp4`](demo/promptly-demo.mp4) (96 s). It was recorded live with the local
+multilingual embeddings and the offline rewrite engine, without Claude. Re-record it with
+`node demo/record_demo.js` (instructions at the top of that file).
+
 ## How it works
 
 ```

@@ -44,6 +44,14 @@ def _normalize(m: np.ndarray) -> np.ndarray:
     return (m / norms).astype(np.float32)
 
 
+# Function words carry no topic signal; hashing them only adds collision noise.
+STOPWORDS = frozenset(
+    """a an the and or but if of to in on for with at by from as is are was were be been am
+    i me my mine you your it its this that these those we our they their them he she his her
+    do does did can could should would will shall may might must have has had not no so
+    what which who how why when where please""".split()
+)
+
 _CJK = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
 _LATIN_WORD = re.compile(r"[a-z0-9][a-z0-9+#.\-]*")
 
@@ -60,7 +68,7 @@ class HashingEmbedder:
         feats: list[tuple[str, float]] = []
         for w in _LATIN_WORD.findall(t):
             w = w.strip(".-")
-            if not w:
+            if not w or w in STOPWORDS:
                 continue
             feats.append(("w:" + w, 1.0))
             padded = f"<{w}>"
@@ -86,7 +94,9 @@ class FastEmbedEmbedder:
     def __init__(self, model: str = DEFAULT_FASTEMBED_MODEL):
         from fastembed import TextEmbedding  # optional dependency
 
-        self._model = TextEmbedding(model_name=model)
+        # Keep the model somewhere persistent (fastembed defaults to the temp dir).
+        cache = os.environ.get("FASTEMBED_CACHE_PATH") or str(Path.home() / ".cache" / "promptly" / "fastembed")
+        self._model = TextEmbedding(model_name=model, cache_dir=cache)
         self.name = f"fastembed:{model}"
         self.dim = int(self._model.embedding_size)
 

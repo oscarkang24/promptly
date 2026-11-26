@@ -14,6 +14,10 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from .context import tokens
+
+
+def tokens_raw(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9']+", text.lower()))
 from .models import Fact, FactDraft, Intent, RewriteDraft, UsedFact
 
 DEFAULT_MODEL = os.environ.get("PROMPTLY_MODEL", "claude-opus-5-5")
@@ -192,7 +196,7 @@ _LEARN_PATTERNS = [
     (re.compile(r"\bi(?:'m| am) an? (.+?)(?:[.,;]|$)", re.I), "work", "Is a {}"),
     (re.compile(r"\bi work (?:at|for) (.+?)(?:[.,;]|$)", re.I), "work", "Works at {}"),
     (re.compile(r"\bi prefer (.+?)(?:[.,;]|$)", re.I), "preference", "Prefers {}"),
-    (re.compile(r"\bi (?:use|code in|write) (.+?)(?:[.,;]|$)", re.I), "work", "Uses {}"),
+    (re.compile(r"\bi (?:mostly |usually |often |also )?(?:use|code in|write in) (.+?)(?:[.,;]|$)", re.I), "work", "Uses {}"),
     (re.compile(r"\bi(?:'m| am) (?:building|working on) (.+?)(?:[.,;]|$)", re.I), "project", "Is building {}"),
     (re.compile(r"\bi(?:'m| am) (?:vegetarian|vegan|allergic to .+?)(?:[.,;]|$)", re.I), "constraint", "{}"),
     (re.compile(r"\bmy goal is (.+?)(?:[.,;]|$)", re.I), "goal", "Goal: {}"),
@@ -210,10 +214,13 @@ class OfflineEngine:
         task = next((t for t, kw in _TASKS if words & kw), "general")
         rel = relevance or {f.id: 1.0 for f in facts}
         chosen = [f for f in facts if rel.get(f.id, 0.0) >= self.threshold][:6]
+        # Triage the request together with any answers the user already gave.
+        full = " ".join([prompt, *answers.values()]).strip()
+        words = tokens(full)
         gaps = []
-        if len(words) < 4 and len(prompt.strip()) < 25:
+        if len(words) < 4 and len(full) < 25:
             gaps.append("what")
-        if not words & {"for", "about", "in", "on", "my", "our", "this"} and len(prompt.strip()) < 40:
+        if not tokens_raw(full) & {"for", "about", "in", "on", "my", "our", "this"} and len(full) < 40:
             gaps.append("where")
         if not words & {"should", "must", "format", "list", "steps", "short", "detailed", "table", "bullet"}:
             gaps.append("done")
